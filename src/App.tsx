@@ -45,25 +45,27 @@ const App = () => (
               <GenderBackground />
             </div>
             {/* Scrollable content area */}
-            <div id="scroll-container" className="relative z-0 flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <div className="max-w-7xl mx-auto md:px-8">
-                <Suspense fallback={<FullPageSpinner />}>
-                  <Routes>
-                    <Route path="/" element={<Index />} />
-                    <Route path="/salon/:id" element={<SalonDetail />} />
-                    <Route path="/booking/:id" element={<BookingFlow />} />
-                    <Route path="/bookings" element={<Bookings />} />
-                    <Route path="/offers" element={<Offers />} />
-                    <Route path="/explore" element={<Explore />} />
-                    <Route path="/profile" element={<Profile />} />
-                    <Route path="/at-home" element={<AtHome />} />
-                    <Route path="/artist/:id" element={<ArtistProfile />} />
-                    <Route path="/at-home-booking/:id" element={<AtHomeBooking />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Suspense>
+            <PullToRefresh scrollContainerId="scroll-container">
+              <div id="scroll-container" className="relative z-0 flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <div className="max-w-7xl mx-auto md:px-8">
+                  <Suspense fallback={<FullPageSpinner />}>
+                    <Routes>
+                      <Route path="/" element={<Index />} />
+                      <Route path="/salon/:id" element={<SalonDetail />} />
+                      <Route path="/booking/:id" element={<BookingFlow />} />
+                      <Route path="/bookings" element={<Bookings />} />
+                      <Route path="/offers" element={<Offers />} />
+                      <Route path="/explore" element={<Explore />} />
+                      <Route path="/profile" element={<Profile />} />
+                      <Route path="/at-home" element={<AtHome />} />
+                      <Route path="/artist/:id" element={<ArtistProfile />} />
+                      <Route path="/at-home-booking/:id" element={<AtHomeBooking />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
+                </div>
               </div>
-            </div>
+            </PullToRefresh>
             <div id="page-floating-footer-root" className="pointer-events-none absolute inset-0 z-[60]" />
             <CartPill />
             <BottomNav />
