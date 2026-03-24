@@ -9,7 +9,7 @@ interface CategoryChipsProps {
 
 const CategoryChips = memo(({ categories, selected, onSelect }: CategoryChipsProps) => {
   return (
-    <div className="flex gap-5 overflow-x-auto px-5 py-2 scrollbar-hide" style={{ contain: 'layout style' }}>
+    <div className="flex gap-5 overflow-x-auto px-5 py-2 scrollbar-hide" style={{ contain: 'layout style', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
       {categories.map((cat) => {
         const isActive = selected === cat.id;
         return (
