@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ArrowLeft, Star, MapPin, Clock, Plus, Minus, Navigation, Heart, ShieldCheck, ChevronRight, ChevronDown, Share2, Scissors, Sparkles, Award, Instagram, X, Play, Copy, Gift, Tag } from 'lucide-react';
+import { ArrowLeft, Star, MapPin, Clock, Plus, Minus, Navigation, Heart, ShieldCheck, ChevronRight, ChevronDown, Share2, Scissors, Sparkles, Award, Instagram, X, Play, Copy, Gift, Tag, Info, MessageSquareText, Images } from 'lucide-react';
 import { toast } from 'sonner'; // Only used for coupon copy
 import YouTubeShort from '@/components/YouTubeShort';
 import YouTubeShortDrawer from '@/components/YouTubeShortDrawer';
