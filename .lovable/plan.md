@@ -1,35 +1,36 @@
 
 
-## Problem
+## Fix: Bottom Nav Tab Replay Bug
 
-The previous fix added `touch-action: pan-x` to `.scrollbar-hide`, which prevents vertical touch events on horizontal scroll containers. This likely broke pull-to-refresh entirely since those containers block vertical gesture propagation. Meanwhile, pull-to-refresh is only a visual placeholder — the actual logic comes from Flutter's WebView bridge.
+### Problem
+Tapping bottom nav tabs pushes each tab path onto `routeStack`, so pressing back replays every tab visit in reverse. Native apps treat tab switches as view replacements, not stack pushes.
 
-## Root Cause
+### Solution
 
-- `touch-action: pan-x` on horizontal containers tells the browser "only allow horizontal panning here" — meaning any vertical swipe starting on a carousel/chip row is completely ignored, and the pull-to-refresh gesture never fires.
-- The real issue is that horizontal scroll containers should allow **both** horizontal scrolling and vertical overscroll passthrough, just not trigger pull-to-refresh *during* an active horizontal swipe.
+Two changes:
 
-## Plan
+**1. BottomNav.tsx — Use `replace` navigation for tab switches**
 
-### 1. Fix `.scrollbar-hide` in `src/index.css`
-- **Remove** `touch-action: pan-x` (too restrictive — kills vertical gestures entirely)
-- **Keep** `overscroll-behavior: contain` (prevents scroll chaining from horizontal containers without blocking pull-to-refresh on the main scroll container)
+Change the tab `onClick` from `navigate(tab.path)` to `navigate(tab.path, { replace: true })`. This tells React Router (and the route sync effect) to replace rather than push.
 
-### 2. Add a custom pull-to-refresh component in `src/components/PullToRefresh.tsx`
-- Replace the passive placeholder with an active touch-gesture handler on the main scroll container (`#scroll-container`)
-- Track `touchstart` / `touchmove` / `touchend`:
-  - Record start X/Y on `touchstart`
-  - On first significant `touchmove`, determine direction: if horizontal delta > vertical delta, **abort** (let horizontal scroll happen naturally)
-  - Only activate pull indicator when: scroll position is at top AND gesture is predominantly vertical (downward)
-  - Use a **threshold of ~60px** vertical pull before triggering refresh
-- On trigger: call `window.flutterRefresh?.()` (Flutter bridge) or fall back to `window.location.reload()`
-- Show the spinner/indicator during pull with rubber-band translate effect
+**2. useFlutterBridge.ts — Handle tab routes as replacements in the route stack**
 
-### 3. Integrate in `src/App.tsx`
-- Wrap the `#scroll-container` div with the `PullToRefresh` component (or attach it as a wrapper around the scroll area)
+Define a set of tab paths: `['/', '/at-home', '/explore', '/bookings', '/profile']`.
 
-### Technical Details
-- The direction lock (horizontal vs vertical) is determined in the first ~10px of movement, standard for mobile gesture disambiguation
-- `overscroll-behavior: contain` on `.scrollbar-hide` ensures nested horizontal scrolls don't chain to the parent, so the pull-to-refresh only activates from the main vertical scroll container
-- The component uses passive touch listeners where possible for performance, with `{ passive: false }` only on the `touchmove` that needs `preventDefault` during an active pull
+In the route sync `useEffect` (lines 54-65), when the new path is a tab route, **replace** the last stack entry instead of pushing — but only if the current top is also a tab route. If navigating from an inner page to a tab (e.g. completing a flow), still replace to avoid stacking tabs.
+
+Update `appBack()`: if the current route is a non-home tab and the stack has only one entry (or is at root), navigate to `/` instead of doing nothing. Back from `/` = app exit (stack length ≤ 1, Flutter handles exit).
+
+### Specific Changes
+
+| File | Change |
+|------|--------|
+| `src/components/BottomNav.tsx` | `navigate(tab.path, { replace: true })` on line ~119 |
+| `src/hooks/useFlutterBridge.ts` | Add `TAB_ROUTES` set; modify sync effect to replace stack top for tab-to-tab switches; update `appBack` to go home from non-home tabs |
+
+### Expected Behavior
+- Tab switches: no stack growth, stack top just changes
+- Back from any tab → Home (`/`)
+- Back from Home → exit (stack length ≤ 1)
+- Inner pages (salon, booking, artist) still push/pop normally
 
