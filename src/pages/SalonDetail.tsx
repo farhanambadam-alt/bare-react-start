@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ArrowLeft, Star, MapPin, Clock, Plus, Minus, Navigation, Heart, ShieldCheck, ChevronRight, ChevronDown, Share2, Scissors, Sparkles, Award, Instagram, X, Play, Copy, Gift, Tag } from 'lucide-react';
+import { ArrowLeft, Star, MapPin, Clock, Plus, Minus, Navigation, Heart, ShieldCheck, ChevronRight, ChevronDown, Share2, Scissors, Sparkles, Award, Instagram, X, Play, Copy, Gift, Tag, Info, MessageSquareText, Images } from 'lucide-react';
 import { toast } from 'sonner'; // Only used for coupon copy
 import YouTubeShort from '@/components/YouTubeShort';
 import YouTubeShortDrawer from '@/components/YouTubeShortDrawer';
@@ -399,19 +399,28 @@ const SalonDetail = () => {
 
       {/* Tab Nav */}
       <div className="flex gap-1.5 px-5 py-2.5 w-full">
-        {(['services', 'about', 'reviews', 'gallery'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab as any)}
-            className={`flex-1 px-3.5 py-2.5 text-[12px] font-heading font-semibold capitalize rounded-xl transition-all duration-200 min-h-[40px] whitespace-nowrap ${
-              activeTab === tab
-                ? 'btn-themed'
-                : 'bg-secondary text-muted-foreground'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {([
+          { key: 'services', icon: Scissors, label: 'Services' },
+          { key: 'about', icon: Info, label: 'About' },
+          { key: 'reviews', icon: MessageSquareText, label: 'Reviews' },
+          { key: 'gallery', icon: Images, label: 'Gallery' },
+        ] as const).map(({ key, icon: Icon, label }) => {
+          const isActive = activeTab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key as any)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-heading font-semibold rounded-xl transition-all duration-200 min-h-[40px] whitespace-nowrap ${
+                isActive
+                  ? 'btn-themed'
+                  : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Services Tab ── */}
