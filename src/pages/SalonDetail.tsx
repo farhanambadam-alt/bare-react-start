@@ -8,6 +8,7 @@ import ReviewsSection from '@/components/ReviewsSection';
 import { useNavigate, useParams } from 'react-router-dom';
 import { featuredSalons, nearbySalons, services, artists, reviews } from '@/data/mockData';
 import { useGender } from '@/contexts/GenderContext';
+import { useFavorites } from '@/contexts/FavoritesContext';
 import { useCart } from '@/contexts/CartContext';
 import InstagramMediaDrawer from '@/components/InstagramMediaDrawer';
 import InstagramEmbed from '@/components/InstagramEmbed';
@@ -69,7 +70,8 @@ const SalonDetail = () => {
   const salon = [...featuredSalons, ...nearbySalons].find((s) => s.id === id) ?? null;
 
   const [activeTab, setActiveTab] = useState<'services' | 'about' | 'reviews' | 'gallery' | 'packages' | 'offers'>('services');
-  const [isFavorite, setIsFavorite] = useState(false);
+  const { isFavorite: checkFavorite, toggleFavorite } = useFavorites();
+  const isFavorite = id ? checkFavorite(id) : false;
   const { items, cartCount, cartTotal, tryAddToCart, removeFromCart, salon: cartSalon } = useCart();
   // Build a local cart record from global cart (only if same salon)
   const isCartForThisSalon = cartSalon?.id === id;
@@ -204,7 +206,7 @@ const SalonDetail = () => {
           <button onClick={() => window.appBack?.()} className="w-10 h-10 rounded-full bg-card/80 backdrop-blur-md flex items-center justify-center border border-border/30 min-h-[44px] min-w-[44px]">
             <ArrowLeft size={18} className="text-foreground" />
           </button>
-          <button onClick={() => setIsFavorite(!isFavorite)} className="w-10 h-10 rounded-full bg-card/80 backdrop-blur-md flex items-center justify-center border border-border/30 min-h-[44px] min-w-[44px]">
+          <button onClick={() => id && toggleFavorite(id)} className="w-10 h-10 rounded-full bg-card/80 backdrop-blur-md flex items-center justify-center border border-border/30 min-h-[44px] min-w-[44px]">
             <Heart size={16} className={isFavorite ? 'text-destructive fill-destructive' : 'text-foreground'} />
           </button>
         </div>
@@ -235,7 +237,7 @@ const SalonDetail = () => {
             <button className="w-10 h-10 rounded-full bg-card border border-border text-foreground flex items-center justify-center hover:bg-secondary transition-colors" aria-label="Share">
               <Share2 size={16} />
             </button>
-            <button onClick={() => setIsFavorite(!isFavorite)} className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors">
+            <button onClick={() => id && toggleFavorite(id)} className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors">
               <Heart size={16} className={isFavorite ? 'text-destructive fill-destructive' : 'text-foreground'} />
             </button>
           </div>
