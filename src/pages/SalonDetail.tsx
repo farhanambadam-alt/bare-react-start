@@ -70,7 +70,8 @@ const SalonDetail = () => {
   const salon = [...featuredSalons, ...nearbySalons].find((s) => s.id === id) ?? null;
 
   const [activeTab, setActiveTab] = useState<'services' | 'about' | 'reviews' | 'gallery' | 'packages' | 'offers'>('services');
-  const [isFavorite, setIsFavorite] = useState(false);
+  const { isFavorite: checkFavorite, toggleFavorite } = useFavorites();
+  const isFavorite = id ? checkFavorite(id) : false;
   const { items, cartCount, cartTotal, tryAddToCart, removeFromCart, salon: cartSalon } = useCart();
   // Build a local cart record from global cart (only if same salon)
   const isCartForThisSalon = cartSalon?.id === id;
