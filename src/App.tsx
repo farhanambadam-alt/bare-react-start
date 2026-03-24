@@ -72,6 +72,7 @@ const App = () => (
           <SalonSwitchModal />
         </BrowserRouter>
       </TooltipProvider>
+      </FavoritesProvider>
       </CartProvider>
     </GenderProvider>
   </QueryClientProvider>

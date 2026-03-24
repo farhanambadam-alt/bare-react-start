@@ -8,6 +8,7 @@ import ReviewsSection from '@/components/ReviewsSection';
 import { useNavigate, useParams } from 'react-router-dom';
 import { featuredSalons, nearbySalons, services, artists, reviews } from '@/data/mockData';
 import { useGender } from '@/contexts/GenderContext';
+import { useFavorites } from '@/contexts/FavoritesContext';
 import { useCart } from '@/contexts/CartContext';
 import InstagramMediaDrawer from '@/components/InstagramMediaDrawer';
 import InstagramEmbed from '@/components/InstagramEmbed';
