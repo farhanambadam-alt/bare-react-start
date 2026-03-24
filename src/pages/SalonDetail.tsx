@@ -237,7 +237,7 @@ const SalonDetail = () => {
             <button className="w-10 h-10 rounded-full bg-card border border-border text-foreground flex items-center justify-center hover:bg-secondary transition-colors" aria-label="Share">
               <Share2 size={16} />
             </button>
-            <button onClick={() => setIsFavorite(!isFavorite)} className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors">
+            <button onClick={() => id && toggleFavorite(id)} className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors">
               <Heart size={16} className={isFavorite ? 'text-destructive fill-destructive' : 'text-foreground'} />
             </button>
           </div>
