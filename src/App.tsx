@@ -13,6 +13,7 @@ import CartPill from "@/components/CartPill";
 import SalonSwitchModal from "@/components/SalonSwitchModal";
 import GenderBackground from "@/components/GenderBackground";
 import FlutterBridge from "@/components/FlutterBridge";
+import PullToRefresh from "@/components/PullToRefresh";
 
 /* Route-level code splitting — reduces initial JS parse time */
 const Index = lazy(() => import("./pages/Index"));
@@ -47,6 +48,7 @@ const App = () => (
             </div>
             {/* Scrollable content area */}
             <div id="scroll-container" className="relative z-0 flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <PullToRefresh>
               <div className="max-w-7xl mx-auto md:px-8">
                 <Suspense fallback={<FullPageSpinner />}>
                   <Routes>
@@ -64,6 +66,7 @@ const App = () => (
                   </Routes>
                 </Suspense>
               </div>
+              </PullToRefresh>
             </div>
             <div id="page-floating-footer-root" className="pointer-events-none absolute inset-0 z-[60]" />
             <CartPill />
