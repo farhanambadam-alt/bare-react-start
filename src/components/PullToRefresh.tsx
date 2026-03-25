@@ -12,7 +12,9 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
   const [pullDistance, setPullDistance] = useState(0);
   const [state, setState] = useState<PullState>('idle');
   const startY = useRef(0);
+  const startX = useRef(0);
   const pulling = useRef(false);
+  const directionLocked = useRef<'vertical' | 'horizontal' | null>(null);
 
   const getScrollContainer = useCallback(
     () => document.getElementById('scroll-container'),
