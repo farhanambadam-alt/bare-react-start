@@ -46,6 +46,24 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
       }
 
       const deltaY = e.touches[0].clientY - startY.current;
+      const deltaX = e.touches[0].clientX - startX.current;
+
+      // Lock direction on first significant movement
+      if (!directionLocked.current) {
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+        if (absX < 5 && absY < 5) return; // not enough movement yet
+        directionLocked.current = absX > absY ? 'horizontal' : 'vertical';
+      }
+
+      // If horizontal swipe detected, bail out entirely
+      if (directionLocked.current === 'horizontal') {
+        pulling.current = false;
+        setPullDistance(0);
+        setState('idle');
+        return;
+      }
+
       if (deltaY <= 0) {
         setPullDistance(0);
         setState('idle');
