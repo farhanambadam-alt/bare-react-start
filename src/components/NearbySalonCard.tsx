@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Salon } from '@/types/salon';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface NearbySalonCardProps {
   salon: Salon;
