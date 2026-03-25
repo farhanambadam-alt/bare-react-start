@@ -27,7 +27,9 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
       if (!container || container.scrollTop > 0) return;
       if (state === 'refreshing') return;
       startY.current = e.touches[0].clientY;
+      startX.current = e.touches[0].clientX;
       pulling.current = true;
+      directionLocked.current = null;
     },
     [getScrollContainer, state]
   );
