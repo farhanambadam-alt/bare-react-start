@@ -27,7 +27,7 @@ const CategoryChips = memo(({ categories, selected, onSelect }: CategoryChipsPro
               }`}
               style={{ transition: 'transform 0.2s ease, box-shadow 0.2s ease' }}
             >
-              <img src={cat.image} alt={cat.name} className="w-full h-full object-cover" loading="lazy" decoding="async" width={62} height={62} />
+              <ImageWithFallback src={cat.image} alt={cat.name} className="w-full h-full object-cover" loading="lazy" decoding="async" width={62} height={62} />
             </div>
             <span className={`text-[11px] font-heading font-medium whitespace-nowrap ${
               isActive ? 'text-primary' : 'text-muted-foreground'

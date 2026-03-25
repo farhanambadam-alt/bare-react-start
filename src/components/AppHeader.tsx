@@ -56,16 +56,13 @@ const AppHeader = ({
       aria-label="Go to profile"
     >
       <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary/20 shadow-sm">
-        <img
+        <ImageWithFallback
           src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&h=80&fit=crop"
           alt="Profile"
           className="w-full h-full object-cover"
           decoding="async"
           width={40}
           height={40}
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = '/placeholder.svg';
-          }}
         />
       </div>
       <div className="text-left">

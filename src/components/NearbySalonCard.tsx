@@ -18,7 +18,7 @@ const NearbySalonCard = memo(({ salon }: NearbySalonCardProps) => {
       style={{ contain: 'layout style paint', border: '1px solid hsl(var(--border) / 0.4)' }}
     >
       <div className="relative h-[130px]">
-        <img src={salon.image} alt={salon.name} className="w-full h-full object-cover" loading="lazy" decoding="async" width={200} height={130} onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }} />
+        <ImageWithFallback src={salon.image} alt={salon.name} className="w-full h-full object-cover" loading="lazy" decoding="async" width={200} height={130} />
         <span className={`absolute top-2.5 right-2.5 text-[10px] font-heading font-semibold px-2 py-0.5 rounded-lg ${
           salon.isOpen
             ? 'bg-success/90 text-success-foreground'
