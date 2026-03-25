@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Salon } from '@/types/salon';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface FeaturedCarouselProps {
   salons: Salon[];
