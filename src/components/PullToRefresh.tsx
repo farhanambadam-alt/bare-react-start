@@ -12,7 +12,9 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
   const [pullDistance, setPullDistance] = useState(0);
   const [state, setState] = useState<PullState>('idle');
   const startY = useRef(0);
+  const startX = useRef(0);
   const pulling = useRef(false);
+  const directionLocked = useRef<'vertical' | 'horizontal' | null>(null);
 
   const getScrollContainer = useCallback(
     () => document.getElementById('scroll-container'),
@@ -25,7 +27,9 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
       if (!container || container.scrollTop > 0) return;
       if (state === 'refreshing') return;
       startY.current = e.touches[0].clientY;
+      startX.current = e.touches[0].clientX;
       pulling.current = true;
+      directionLocked.current = null;
     },
     [getScrollContainer, state]
   );
@@ -42,6 +46,24 @@ const PullToRefresh = ({ children }: { children: ReactNode }) => {
       }
 
       const deltaY = e.touches[0].clientY - startY.current;
+      const deltaX = e.touches[0].clientX - startX.current;
+
+      // Lock direction on first significant movement
+      if (!directionLocked.current) {
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+        if (absX < 5 && absY < 5) return; // not enough movement yet
+        directionLocked.current = absX > absY ? 'horizontal' : 'vertical';
+      }
+
+      // If horizontal swipe detected, bail out entirely
+      if (directionLocked.current === 'horizontal') {
+        pulling.current = false;
+        setPullDistance(0);
+        setState('idle');
+        return;
+      }
+
       if (deltaY <= 0) {
         setPullDistance(0);
         setState('idle');
