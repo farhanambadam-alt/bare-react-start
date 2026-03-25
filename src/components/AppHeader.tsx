@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useGender } from '@/contexts/GenderContext';
 import NotificationDrawer from '@/components/NotificationDrawer';
 import LocationPickerDrawer from '@/components/LocationPickerDrawer';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface AppHeaderProps {
   /** Optional left slot (e.g. back button). If omitted, shows profile avatar + greeting. */
