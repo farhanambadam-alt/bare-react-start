@@ -201,7 +201,7 @@ const FeaturedCarousel = memo(({ salons }: FeaturedCarouselProps) => {
               </div>
 
               <div className="absolute right-0 top-0 bottom-0 w-[55%] z-10">
-                <img
+                <ImageWithFallback
                   src={salon.image}
                   alt={salon.name}
                   className="w-full h-full object-cover"
@@ -212,9 +212,6 @@ const FeaturedCarousel = memo(({ salons }: FeaturedCarouselProps) => {
                       'linear-gradient(to right, transparent 0%, black 25%)',
                     WebkitMaskImage:
                       'linear-gradient(to right, transparent 0%, black 25%)',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/placeholder.svg';
                   }}
                 />
               </div>
