@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { Category } from '@/types/salon';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface CategoryChipsProps {
   categories: Category[];
