@@ -13,6 +13,7 @@ import CartPill from "@/components/CartPill";
 import SalonSwitchModal from "@/components/SalonSwitchModal";
 import GenderBackground from "@/components/GenderBackground";
 import FlutterBridge from "@/components/FlutterBridge";
+import PullToRefresh from "@/components/PullToRefresh";
 
 /* Route-level code splitting — reduces initial JS parse time */
 const Index = lazy(() => import("./pages/Index"));
