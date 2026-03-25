@@ -48,6 +48,7 @@ const App = () => (
             </div>
             {/* Scrollable content area */}
             <div id="scroll-container" className="relative z-0 flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <PullToRefresh>
               <div className="max-w-7xl mx-auto md:px-8">
                 <Suspense fallback={<FullPageSpinner />}>
                   <Routes>
