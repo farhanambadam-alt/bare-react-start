@@ -136,6 +136,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
         {
           input: value,
           componentRestrictions: { country: 'in' },
+          types: [],
         },
         (preds, status) => {
           if (status === google.maps.places.PlacesServiceStatus.OK && preds) {
