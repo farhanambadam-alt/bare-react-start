@@ -12,17 +12,22 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  // Serve apple-app-site-association with correct content-type
-  assetsInclude: [],
-  configureServer(server) {
-    server.middlewares.use((req, _res, next) => {
-      if (req.url === '/.well-known/apple-app-site-association') {
-        _res.setHeader('Content-Type', 'application/json');
-      }
-      next();
-    });
-  },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    mode === "development" && componentTagger(),
+    // Serve apple-app-site-association with application/json content-type
+    {
+      name: 'aasa-content-type',
+      configureServer(server: { middlewares: { use: (fn: Function) => void } }) {
+        server.middlewares.use((req: { url?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+          if (req.url === '/.well-known/apple-app-site-association') {
+            res.setHeader('Content-Type', 'application/json');
+          }
+          next();
+        });
+      },
+    },
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
