@@ -1,5 +1,5 @@
 /// <reference types="google.maps" />
-import { MapPin, Search, Loader2, Navigation, X, Check } from 'lucide-react';
+import { MapPin, Search, Loader2, Navigation, X, Check, ArrowLeft } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { useLocation_ } from '@/contexts/LocationContext';
@@ -201,10 +201,23 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const handleConfirm = () => {
     if (!selectedCoords) return;
 
-    // Extract city/area from address
-    const parts = selectedAddress.split(',').map((p) => p.trim());
-    const cityName = parts.length >= 3 ? parts[parts.length - 3] : parts[0] || 'Unknown';
-    const areaName = parts.length >= 4 ? parts[parts.length - 4] : parts[0] || undefined;
+    // Extract city/area from address (Google format: "Locality, Area, City, State ZIP, Country")
+    const parts = selectedAddress.split(',').map((p) => p.trim()).filter(Boolean);
+    let cityName = 'Unknown';
+    let areaName: string | undefined;
+    
+    if (parts.length >= 4) {
+      // e.g. "12 Street, Koramangala, Bangalore, Karnataka 560034, India"
+      areaName = parts[parts.length - 4]; // Koramangala
+      cityName = parts[parts.length - 3]; // Bangalore
+    } else if (parts.length === 3) {
+      areaName = parts[0];
+      cityName = parts[1];
+    } else if (parts.length === 2) {
+      cityName = parts[0];
+    } else if (parts.length === 1) {
+      cityName = parts[0];
+    }
 
     setLocation({
       cityName,
@@ -218,20 +231,31 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   };
 
   return (
-    <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
-      <DrawerContent className="max-h-[92vh] min-h-[60vh] flex flex-col">
+    <Drawer open={open} onOpenChange={(o) => !o && onClose()} dismissible={false}>
+      <DrawerContent className="max-h-[92vh] min-h-[60vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <h2 className="font-heading font-bold text-lg text-foreground">
             {step === 'search' ? 'Select Location' : 'Confirm Location'}
           </h2>
-          <button
-            onClick={step === 'map' ? () => setStep('search') : onClose}
-            className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
-            aria-label={step === 'map' ? 'Back to search' : 'Close'}
-          >
-            <X size={18} className="text-muted-foreground" />
-          </button>
+          <div className="flex items-center gap-2">
+            {step === 'map' && (
+              <button
+                onClick={() => setStep('search')}
+                className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
+                aria-label="Back to search"
+              >
+                <ArrowLeft size={18} className="text-muted-foreground" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
+              aria-label="Close"
+            >
+              <X size={18} className="text-muted-foreground" />
+            </button>
+          </div>
         </div>
 
         {mapsError && (
@@ -332,7 +356,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           <div className="flex-1 flex flex-col px-5 pb-5">
             {/* Map container */}
             <div className="relative flex-1 min-h-[280px] rounded-2xl overflow-hidden border border-border mb-4">
-              <div ref={mapRef} className="w-full h-full min-h-[280px]" />
+              <div ref={mapRef} className="w-full h-full min-h-[280px]" data-vaul-no-drag />
               {/* Center crosshair hint */}
               <div className="absolute top-3 left-3 right-3">
                 <div className="bg-background/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-border shadow-sm">
