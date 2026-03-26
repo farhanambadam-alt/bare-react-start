@@ -114,8 +114,13 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       geocoder.current = new google.maps.Geocoder();
     }
     geocoder.current.geocode({ location: { lat, lng } }, (results, status) => {
-      if (status === 'OK' && results?.[0]) {
-        setSelectedAddress(results[0].formatted_address);
+      if (status === 'OK' && results && results.length > 0) {
+        const preferred = results.find(r =>
+          r.types.includes('street_address') ||
+          r.types.includes('premise') ||
+          r.types.includes('point_of_interest')
+        ) || results[0];
+        setSelectedAddress(preferred.formatted_address);
       }
     });
   }, []);
