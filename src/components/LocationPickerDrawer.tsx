@@ -1,5 +1,5 @@
 /// <reference types="google.maps" />
-import { MapPin, Search, Loader2, Navigation, X, Check } from 'lucide-react';
+import { MapPin, Search, Loader2, Navigation, X, Check, ArrowLeft } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { useLocation_ } from '@/contexts/LocationContext';
