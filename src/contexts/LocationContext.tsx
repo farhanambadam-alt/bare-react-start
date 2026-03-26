@@ -35,8 +35,7 @@ const LocationContext = createContext<LocationContextType>({
 
 export const useLocation_ = () => useContext(LocationContext);
 
-// Reverse geocode coords → city name using free Nominatim API
-async function reverseGeocode(lat: number, lng: number): Promise<{ city: string; area?: string }> {
+async function reverseGeocode(lat: number, lng: number): Promise<{ city: string; area?: string; fullAddress?: string }> {
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
@@ -45,9 +44,13 @@ async function reverseGeocode(lat: number, lng: number): Promise<{ city: string;
     const data = await res.json();
     const addr = data.address || {};
     const city =
-      addr.city || addr.town || addr.village || addr.state_district || addr.state || 'Unknown';
-    const area = addr.suburb || addr.neighbourhood || addr.county || undefined;
-    return { city, area };
+      addr.city || addr.town || addr.village || addr.municipality || addr.state_district || addr.state || 'Unknown';
+    const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.county || undefined;
+    return {
+      city,
+      area,
+      fullAddress: data.display_name || undefined,
+    };
   } catch {
     return { city: 'Unknown' };
   }
@@ -58,13 +61,14 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
     try {
       const stored = localStorage.getItem('user_location');
       if (stored) return JSON.parse(stored);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return DEFAULT_LOCATION;
   });
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // Persist to localStorage
   useEffect(() => {
     localStorage.setItem('user_location', JSON.stringify(location));
   }, [location]);
@@ -74,20 +78,18 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
     setLocationError(null);
   }, []);
 
-  // Browser Geolocation API fallback
   const requestGPSLocation = useCallback(() => {
     setIsLocating(true);
     setLocationError(null);
 
-    // Check if Flutter bridge provides native location
     if (window.flutter_inappwebview) {
       try {
         window.flutter_inappwebview.callHandler('requestLocation');
-        // Flutter will call window.setLocationFromNative() with the result
-        // Timeout fallback if Flutter doesn't respond
         setTimeout(() => setIsLocating(false), 10000);
         return;
-      } catch { /* fall through to browser API */ }
+      } catch {
+        /* fall through to browser API */
+      }
     }
 
     if (!navigator.geolocation) {
@@ -106,6 +108,7 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
           lat: latitude,
           lng: longitude,
           source: 'gps',
+          fullAddress: geo.fullAddress,
         });
         setIsLocating(false);
       },
@@ -122,13 +125,13 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
     );
   }, [setLocation]);
 
-  // Expose global setter for Flutter bridge
   useEffect(() => {
     (window as any).setLocationFromNative = (data: {
       lat: number;
       lng: number;
       city?: string;
       area?: string;
+      fullAddress?: string;
     }) => {
       if (data.city) {
         setLocation({
@@ -137,10 +140,10 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
           lat: data.lat,
           lng: data.lng,
           source: 'flutter',
+          fullAddress: data.fullAddress,
         });
         setIsLocating(false);
       } else {
-        // Flutter sent coords only — reverse geocode on web side
         reverseGeocode(data.lat, data.lng).then((geo) => {
           setLocation({
             cityName: geo.city,
@@ -148,13 +151,13 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
             lat: data.lat,
             lng: data.lng,
             source: 'flutter',
+            fullAddress: geo.fullAddress,
           });
           setIsLocating(false);
         });
       }
     };
 
-    // Also expose error handler
     (window as any).setLocationError = (msg: string) => {
       setLocationError(msg);
       setIsLocating(false);
