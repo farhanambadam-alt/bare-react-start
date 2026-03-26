@@ -3,7 +3,7 @@
  * Replace the placeholder with your actual API key.
  * The key must have Maps JavaScript API and Places API enabled.
  */
-export const GOOGLE_MAPS_API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY';
+export const GOOGLE_MAPS_API_KEY = 'AIzaSyC-_HwDKeXM8RK2LeEY06IcF0TiyjnVcyw';
 
 let loadPromise: Promise<void> | null = null;
 
