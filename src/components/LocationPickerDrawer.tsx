@@ -1,6 +1,7 @@
-import { MapPin, Search, ChevronRight } from 'lucide-react';
+import { MapPin, Search, ChevronRight, Loader2, Navigation } from 'lucide-react';
 import { useState } from 'react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { useLocation_ } from '@/contexts/LocationContext';
 
 interface LocationPickerDrawerProps {
   open: boolean;
@@ -16,12 +17,43 @@ const cities = [
 
 const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const [search, setSearch] = useState('');
+  const { setLocation, requestGPSLocation, isLocating, locationError } = useLocation_();
 
   const filtered = cities.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.areas.some((a) => a.toLowerCase().includes(search.toLowerCase()))
   );
+
+  const handleUseCurrentLocation = () => {
+    requestGPSLocation();
+    // Close drawer after a short delay to show loading state
+    const checkInterval = setInterval(() => {
+      // The context will update isLocating — we close when done
+    }, 500);
+    // Auto-close after location is obtained (max 15s)
+    const timeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      onClose();
+    }, 15000);
+    // Watch for completion
+    const origClose = () => {
+      clearInterval(checkInterval);
+      clearTimeout(timeout);
+      onClose();
+    };
+    // We'll use a simpler approach — just close after a brief moment
+    // The GPS will update the context in the background
+    setTimeout(() => origClose(), 1500);
+  };
+
+  const handleSelectCity = (cityName: string) => {
+    setLocation({
+      cityName,
+      source: 'manual',
+    });
+    onClose();
+  };
 
   return (
     <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
@@ -43,19 +75,34 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           </div>
 
           {/* Use current location */}
-          <button className="w-full flex items-center gap-3 p-3 mb-4 rounded-2xl bg-primary/5 border border-primary/15 active:scale-[0.98] transition-transform min-h-[48px]">
+          <button
+            onClick={handleUseCurrentLocation}
+            disabled={isLocating}
+            className="w-full flex items-center gap-3 p-3 mb-2 rounded-2xl bg-primary/5 border border-primary/15 active:scale-[0.98] transition-transform min-h-[48px] disabled:opacity-60"
+          >
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <MapPin size={18} className="text-primary" />
+              {isLocating ? (
+                <Loader2 size={18} className="text-primary animate-spin" />
+              ) : (
+                <Navigation size={18} className="text-primary" />
+              )}
             </div>
-            <span className="font-heading font-semibold text-[14px] text-primary">Use Current Location</span>
+            <span className="font-heading font-semibold text-[14px] text-primary">
+              {isLocating ? 'Detecting location...' : 'Use Current Location'}
+            </span>
           </button>
 
+          {/* Error message */}
+          {locationError && (
+            <p className="text-[12px] font-body text-destructive mb-3 px-1">{locationError}</p>
+          )}
+
           {/* City list */}
-          <div className="space-y-2">
+          <div className="space-y-2 mt-2">
             {filtered.map((city) => (
               <button
                 key={city.name}
-                onClick={onClose}
+                onClick={() => handleSelectCity(city.name)}
                 className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border active:scale-[0.98] transition-transform min-h-[48px]"
               >
                 <MapPin size={16} className="text-muted-foreground flex-shrink-0" />
