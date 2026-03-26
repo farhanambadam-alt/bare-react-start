@@ -218,8 +218,8 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   };
 
   return (
-    <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
-      <DrawerContent className="max-h-[92vh] min-h-[60vh] flex flex-col">
+    <Drawer open={open} onOpenChange={(o) => !o && onClose()} dismissible={false}>
+      <DrawerContent className="max-h-[92vh] min-h-[60vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <h2 className="font-heading font-bold text-lg text-foreground">
