@@ -12,6 +12,16 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
+  // Serve apple-app-site-association with correct content-type
+  assetsInclude: [],
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      if (req.url === '/.well-known/apple-app-site-association') {
+        _res.setHeader('Content-Type', 'application/json');
+      }
+      next();
+    });
+  },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
