@@ -6,6 +6,7 @@ export interface LocationData {
   lat?: number;
   lng?: number;
   source: 'manual' | 'gps' | 'flutter';
+  fullAddress?: string;
 }
 
 interface LocationContextType {

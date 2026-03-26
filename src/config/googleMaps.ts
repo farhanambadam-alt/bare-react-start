@@ -8,7 +8,7 @@ export const GOOGLE_MAPS_API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY';
 let loadPromise: Promise<void> | null = null;
 
 export function loadGoogleMapsScript(): Promise<void> {
-  if (window.google?.maps) return Promise.resolve();
+  if ((window as any).google?.maps) return Promise.resolve();
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise((resolve, reject) => {
