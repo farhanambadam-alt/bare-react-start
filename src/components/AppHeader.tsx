@@ -88,7 +88,7 @@ const AppHeader = ({
           aria-label="Select location"
         >
           <MapPin size={14} className="text-accent" />
-          <span className="text-[13px] font-body font-semibold text-foreground">Bangalore</span>
+          <span className="text-[13px] font-body font-semibold text-foreground truncate max-w-[100px]">{userLocation.areaName || userLocation.cityName}</span>
           <ChevronDown size={11} className="text-muted-foreground/70" />
         </button>
       )}
