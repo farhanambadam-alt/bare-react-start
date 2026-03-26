@@ -34,7 +34,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <GenderProvider>
-      <CartProvider>
+    <LocationProvider>
       <FavoritesProvider>
       <TooltipProvider>
         <Toaster />
