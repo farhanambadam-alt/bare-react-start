@@ -332,7 +332,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           <div className="flex-1 flex flex-col px-5 pb-5">
             {/* Map container */}
             <div className="relative flex-1 min-h-[280px] rounded-2xl overflow-hidden border border-border mb-4">
-              <div ref={mapRef} className="w-full h-full min-h-[280px]" />
+              <div ref={mapRef} className="w-full h-full min-h-[280px]" data-vaul-no-drag />
               {/* Center crosshair hint */}
               <div className="absolute top-3 left-3 right-3">
                 <div className="bg-background/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-border shadow-sm">
