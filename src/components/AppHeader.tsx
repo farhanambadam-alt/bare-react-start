@@ -25,6 +25,7 @@ const AppHeader = ({
   showNotification = true,
 }: AppHeaderProps) => {
   const { gender } = useGender();
+  const { location: userLocation } = useLocation_();
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
