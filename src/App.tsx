@@ -81,6 +81,7 @@ const App = () => (
       </CartProvider>
     </LocationProvider>
     </GenderProvider>
+  </QueryClientProvider>
 );
 
 export default App;
