@@ -1,7 +1,21 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+
+function aasaPlugin(): Plugin {
+  return {
+    name: 'aasa-content-type',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/.well-known/apple-app-site-association') {
+          res.setHeader('Content-Type', 'application/json');
+        }
+        next();
+      });
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -15,18 +29,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     mode === "development" && componentTagger(),
-    // Serve apple-app-site-association with application/json content-type
-    {
-      name: 'aasa-content-type',
-      configureServer(server: { middlewares: { use: (fn: Function) => void } }) {
-        server.middlewares.use((req: { url?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
-          if (req.url === '/.well-known/apple-app-site-association') {
-            res.setHeader('Content-Type', 'application/json');
-          }
-          next();
-        });
-      },
-    },
+    aasaPlugin(),
   ].filter(Boolean),
   resolve: {
     alias: {
