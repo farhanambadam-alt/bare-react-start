@@ -179,19 +179,39 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
         const { latitude, longitude } = pos.coords;
         setSelectedCoords({ lat: latitude, lng: longitude });
 
-        if (mapsLoaded) {
-          const gc = new google.maps.Geocoder();
+        // Always reverse-geocode to get a human-readable address
+        const gc = new google.maps.Geocoder();
+        const doGeocode = () => {
           gc.geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
-            if (status === 'OK' && results?.[0]) {
-              setSelectedAddress(results[0].formatted_address);
+            if (status === 'OK' && results && results.length > 0) {
+              // Prefer a result with a street address or point of interest
+              const preferred = results.find(r =>
+                r.types.includes('street_address') ||
+                r.types.includes('premise') ||
+                r.types.includes('subpremise') ||
+                r.types.includes('point_of_interest')
+              ) || results[0];
+              setSelectedAddress(preferred.formatted_address);
             } else {
               setSelectedAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
             }
             setStep('map');
           });
+        };
+
+        if (mapsLoaded) {
+          doGeocode();
         } else {
-          setSelectedAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
-          setStep('map');
+          // Wait for maps to load, then geocode
+          loadGoogleMapsScript()
+            .then(() => {
+              setMapsLoaded(true);
+              doGeocode();
+            })
+            .catch(() => {
+              setSelectedAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+              setStep('map');
+            });
         }
       },
       () => { /* error handled by context */ },
