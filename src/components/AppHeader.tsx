@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Bell, MapPin, ChevronDown } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useGender } from '@/contexts/GenderContext';
+import { useLocation_ } from '@/contexts/LocationContext';
 import NotificationDrawer from '@/components/NotificationDrawer';
 import LocationPickerDrawer from '@/components/LocationPickerDrawer';
 import ImageWithFallback from '@/components/ImageWithFallback';
@@ -24,6 +25,7 @@ const AppHeader = ({
   showNotification = true,
 }: AppHeaderProps) => {
   const { gender } = useGender();
+  const { location: userLocation } = useLocation_();
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
@@ -86,7 +88,7 @@ const AppHeader = ({
           aria-label="Select location"
         >
           <MapPin size={14} className="text-accent" />
-          <span className="text-[13px] font-body font-semibold text-foreground">Bangalore</span>
+          <span className="text-[13px] font-body font-semibold text-foreground truncate max-w-[100px]">{userLocation.areaName || userLocation.cityName}</span>
           <ChevronDown size={11} className="text-muted-foreground/70" />
         </button>
       )}
