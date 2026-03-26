@@ -225,13 +225,24 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           <h2 className="font-heading font-bold text-lg text-foreground">
             {step === 'search' ? 'Select Location' : 'Confirm Location'}
           </h2>
-          <button
-            onClick={step === 'map' ? () => setStep('search') : onClose}
-            className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
-            aria-label={step === 'map' ? 'Back to search' : 'Close'}
-          >
-            <X size={18} className="text-muted-foreground" />
-          </button>
+          <div className="flex items-center gap-2">
+            {step === 'map' && (
+              <button
+                onClick={() => setStep('search')}
+                className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
+                aria-label="Back to search"
+              >
+                <X size={18} className="text-muted-foreground" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
+              aria-label="Close"
+            >
+              <X size={18} className="text-muted-foreground" />
+            </button>
+          </div>
         </div>
 
         {mapsError && (
