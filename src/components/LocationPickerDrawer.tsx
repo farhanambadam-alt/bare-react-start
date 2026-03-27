@@ -292,7 +292,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       searchAbortRef.current = controller;
 
       try {
-        const results = await searchPlacesNew(value, controller.signal);
+        const results = await searchPlacesOld(value);
         setPredictions(results);
         setMapsError(null);
       } catch (err: any) {
