@@ -308,21 +308,23 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   };
 
   const handleSelectPrediction = async (prediction: SearchPrediction) => {
-    if (prediction.lat != null && prediction.lng != null) {
-      setResolvedSelection(
-        { lat: prediction.lat, lng: prediction.lng },
-        {
-          cityName: prediction.cityName || 'Unknown',
-          areaName: prediction.areaName,
-          fullAddress: prediction.description,
-        }
-      );
+    if (!prediction.placeId) {
+      setMapsError('Could not get coordinates for this location.');
       return;
     }
 
-    // If no coords from search result, reverse geocode from place details
-    // (shouldn't happen with Places API New, but just in case)
-    setMapsError('Could not get coordinates for this location.');
+    setIsSearching(true);
+    const details = await getPlaceDetails(prediction.placeId);
+    setIsSearching(false);
+
+    if (details) {
+      setResolvedSelection(
+        { lat: details.lat, lng: details.lng },
+        details.meta
+      );
+    } else {
+      setMapsError('Could not get details for this location.');
+    }
   };
 
   const handleUseCurrentLocation = () => {
