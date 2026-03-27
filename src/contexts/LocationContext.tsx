@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { loadGoogleMapsScript } from '@/config/googleMaps';
 
 export interface LocationData {
   cityName: string;
