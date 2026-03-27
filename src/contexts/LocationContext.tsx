@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { loadGoogleMapsScript } from '@/config/googleMaps';
 
 export interface LocationData {
   cityName: string;
@@ -37,20 +38,40 @@ export const useLocation_ = () => useContext(LocationContext);
 
 async function reverseGeocode(lat: number, lng: number): Promise<{ city: string; area?: string; fullAddress?: string }> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } }
-    );
-    const data = await res.json();
-    const addr = data.address || {};
-    const city =
-      addr.city || addr.town || addr.village || addr.municipality || addr.state_district || addr.state || 'Unknown';
-    const area = addr.suburb || addr.neighbourhood || addr.city_district || addr.county || undefined;
-    return {
-      city,
-      area,
-      fullAddress: data.display_name || undefined,
-    };
+    await loadGoogleMapsScript();
+    const geocoder = new google.maps.Geocoder();
+
+    // Use callback-style to go through JS SDK, not REST endpoint
+    return new Promise((resolve) => {
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
+          const preferred =
+            results.find((r) =>
+              r.types.includes('street_address') ||
+              r.types.includes('premise') ||
+              r.types.includes('subpremise')
+            ) ||
+            results.find((r) =>
+              r.types.includes('route') ||
+              r.types.includes('point_of_interest')
+            ) ||
+            results[0];
+
+          const components = preferred.address_components || [];
+          const find = (...types: string[]) =>
+            components.find((c) => types.some((t) => c.types.includes(t)))?.long_name;
+
+          resolve({
+            city: find('locality') || find('administrative_area_level_2') || find('administrative_area_level_1') || 'Unknown',
+            area: find('sublocality_level_1') || find('sublocality') || find('neighborhood') || find('route') || undefined,
+            fullAddress: preferred.formatted_address,
+          });
+        } else {
+          console.warn('Geocoder status:', status);
+          resolve({ city: 'Unknown' });
+        }
+      });
+    });
   } catch {
     return { city: 'Unknown' };
   }

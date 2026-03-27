@@ -17,12 +17,9 @@ type SearchPrediction = {
   title: string;
   subtitle?: string;
   description: string;
-  source: 'google' | 'osm';
-  placeId?: string;
   lat?: number;
   lng?: number;
-  cityName?: string;
-  areaName?: string;
+  components?: google.maps.GeocoderAddressComponent[];
 };
 
 type LocationMeta = {
@@ -31,65 +28,62 @@ type LocationMeta = {
   fullAddress: string;
 };
 
-const parseAddressFromText = (address: string): Pick<LocationMeta, 'cityName' | 'areaName'> => {
-  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
-
-  if (parts.length >= 4) {
-    return {
-      areaName: parts[parts.length - 4],
-      cityName: parts[parts.length - 3] || parts[0] || 'Unknown',
-    };
-  }
-
-  if (parts.length === 3) {
-    return {
-      areaName: parts[0],
-      cityName: parts[1] || 'Unknown',
-    };
-  }
-
-  return {
-    cityName: parts[0] || 'Unknown',
-  };
-};
-
-const parseGoogleAddressMeta = (
-  components?: google.maps.GeocoderAddressComponent[]
+/** Extract city/area from Google address_components */
+const parseGeocodingComponents = (
+  components: google.maps.GeocoderAddressComponent[]
 ): Pick<LocationMeta, 'cityName' | 'areaName'> => {
-  const findByType = (...types: string[]) =>
-    components?.find((component) => types.every((type) => component.types.includes(type)))?.long_name;
+  const find = (...types: string[]) =>
+    components.find((c) => types.some((t) => c.types.includes(t)))?.long_name;
 
   return {
     cityName:
-      findByType('locality') ||
-      findByType('administrative_area_level_2') ||
-      findByType('administrative_area_level_1') ||
+      find('locality') ||
+      find('administrative_area_level_2') ||
+      find('administrative_area_level_1') ||
       'Unknown',
     areaName:
-      findByType('sublocality_level_1') ||
-      findByType('sublocality') ||
-      findByType('neighborhood') ||
-      findByType('route') ||
+      find('sublocality_level_1') ||
+      find('sublocality') ||
+      find('neighborhood') ||
+      find('route') ||
       undefined,
   };
 };
 
-const parseOsmAddressMeta = (address: Record<string, string | undefined> = {}): Pick<LocationMeta, 'cityName' | 'areaName'> => ({
-  cityName:
-    address.city ||
-    address.town ||
-    address.village ||
-    address.municipality ||
-    address.state_district ||
-    address.state ||
-    'Unknown',
-  areaName:
-    address.suburb ||
-    address.neighbourhood ||
-    address.city_district ||
-    address.county ||
-    undefined,
-});
+/**
+ * Reverse-geocode using Maps JavaScript API Geocoder (JS SDK).
+ */
+const reverseGeocodeJS = async (lat: number, lng: number): Promise<LocationMeta> => {
+  await loadGoogleMapsScript();
+  const geocoder = new google.maps.Geocoder();
+
+  return new Promise((resolve) => {
+    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
+        const preferred =
+          results.find((r) =>
+            r.types.includes('street_address') ||
+            r.types.includes('premise') ||
+            r.types.includes('subpremise')
+          ) ||
+          results.find((r) =>
+            r.types.includes('route') ||
+            r.types.includes('point_of_interest')
+          ) ||
+          results[0];
+
+        const meta = parseGeocodingComponents(preferred.address_components);
+        resolve({ ...meta, fullAddress: preferred.formatted_address });
+      } else {
+        console.warn('Geocoder failed:', status);
+        resolve({
+          cityName: 'Unknown',
+          fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+        });
+      }
+    });
+  });
+};
 
 const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const { location, setLocation, requestGPSLocation, isLocating, locationError } = useLocation_();
@@ -102,141 +96,43 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const [selectedLocationMeta, setSelectedLocationMeta] = useState<Pick<LocationMeta, 'cityName' | 'areaName'> | null>(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [mapsError, setMapsError] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const markerInstance = useRef<google.maps.Marker | null>(null);
-  const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
-  const placesService = useRef<google.maps.places.PlacesService | null>(null);
-  const geocoder = useRef<google.maps.Geocoder | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const searchAbortRef = useRef<AbortController | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
 
-  const setResolvedSelection = useCallback((coords: { lat: number; lng: number }, meta: LocationMeta) => {
-    setSelectedCoords(coords);
-    setSelectedAddress(meta.fullAddress);
-    setSelectedLocationMeta({ cityName: meta.cityName, areaName: meta.areaName });
-    setStep('map');
-  }, []);
-
-  const reverseGeocodeWithOsm = useCallback(async (lat: number, lng: number): Promise<LocationMeta> => {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } }
-    );
-
-    const data = await response.json();
-    const meta = parseOsmAddressMeta(data.address || {});
-
-    return {
-      ...meta,
-      fullAddress: data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-    };
-  }, []);
-
-  const reverseGeocodeCoords = useCallback(async (lat: number, lng: number) => {
+  /** Reverse-geocode and update UI state */
+  const reverseGeocodeAndUpdate = useCallback(async (lat: number, lng: number) => {
+    setIsGeocodingAddress(true);
+    setSelectedAddress('');
     try {
-      if ((window as Window & typeof globalThis & { google?: typeof google }).google?.maps) {
-        if (!geocoder.current) {
-          geocoder.current = new google.maps.Geocoder();
-        }
-
-        const googleResult = await new Promise<LocationMeta | null>((resolve) => {
-          geocoder.current?.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === 'OK' && results && results.length > 0) {
-              const preferred =
-                results.find((result) =>
-                  result.types.includes('street_address') ||
-                  result.types.includes('premise') ||
-                  result.types.includes('subpremise') ||
-                  result.types.includes('point_of_interest')
-                ) || results[0];
-
-              resolve({
-                ...parseGoogleAddressMeta(preferred.address_components),
-                fullAddress: preferred.formatted_address,
-              });
-              return;
-            }
-
-            resolve(null);
-          });
-        });
-
-        if (googleResult) {
-          setSelectedAddress(googleResult.fullAddress);
-          setSelectedLocationMeta({ cityName: googleResult.cityName, areaName: googleResult.areaName });
-          return googleResult;
-        }
-      }
-    } catch {
-      setMapsError('Google location lookup is unavailable right now, so backup address lookup is being used.');
-    }
-
-    const fallbackResult = await reverseGeocodeWithOsm(lat, lng);
-    setSelectedAddress(fallbackResult.fullAddress);
-    setSelectedLocationMeta({ cityName: fallbackResult.cityName, areaName: fallbackResult.areaName });
-    return fallbackResult;
-  }, [reverseGeocodeWithOsm]);
-
-  const searchWithOsm = useCallback(async (query: string) => {
-    searchAbortRef.current?.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(query)}`,
-        {
-          headers: { 'Accept-Language': 'en' },
-          signal: controller.signal,
-        }
-      );
-
-      const data = await response.json();
-      const fallbackPredictions: SearchPrediction[] = Array.isArray(data)
-        ? data.map((item: any) => {
-            const meta = parseOsmAddressMeta(item.address || {});
-            const title = item.name || meta.areaName || meta.cityName || item.display_name;
-            const descriptionParts = item.display_name
-              ?.split(',')
-              .map((part: string) => part.trim())
-              .filter(Boolean) || [];
-
-            return {
-              id: `${item.place_id}`,
-              title,
-              subtitle: descriptionParts.slice(1).join(', '),
-              description: item.display_name,
-              source: 'osm',
-              lat: Number(item.lat),
-              lng: Number(item.lon),
-              cityName: meta.cityName,
-              areaName: meta.areaName,
-            };
-          })
-        : [];
-
-      setPredictions(fallbackPredictions);
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        setPredictions([]);
-      }
+      const result = await reverseGeocodeJS(lat, lng);
+      setSelectedAddress(result.fullAddress);
+      setSelectedLocationMeta({ cityName: result.cityName, areaName: result.areaName });
+      return result;
+    } catch (err) {
+      console.error('Reverse geocoding failed:', err);
+      setSelectedAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      setSelectedLocationMeta({ cityName: 'Unknown' });
+      return null;
+    } finally {
+      setIsGeocodingAddress(false);
     }
   }, []);
 
-  const resolveSearchFallback = useCallback(async (query: string) => {
-    await searchWithOsm(query);
-  }, [searchWithOsm]);
-
-  // Load Google Maps on open
+  // Load Google Maps JS SDK on open
   useEffect(() => {
     if (!open) return;
     loadGoogleMapsScript()
       .then(() => {
         setMapsLoaded(true);
         setMapsError(null);
+        geocoderRef.current = new google.maps.Geocoder();
       })
       .catch(() => setMapsError('Failed to load Google Maps. Please check your API key.'));
   }, [open]);
@@ -251,26 +147,27 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       setSelectedCoords(null);
       setSelectedLocationMeta(null);
       setMapsError(null);
-      searchAbortRef.current?.abort();
+      setIsSearching(false);
+      setIsGeocodingAddress(false);
     }
   }, [open]);
 
   useEffect(() => {
     return () => {
-      searchAbortRef.current?.abort();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
+  // When location updates from GPS/flutter, go to map step
   useEffect(() => {
     if (!open || !location.lat || !location.lng) return;
     if (location.source !== 'gps' && location.source !== 'flutter') return;
 
-    setSelectedCoords({ lat: location.lat, lng: location.lng });
-    setSelectedAddress(location.fullAddress || [location.areaName, location.cityName].filter(Boolean).join(', '));
-    setSelectedLocationMeta({ cityName: location.cityName, areaName: location.areaName });
+    const coords = { lat: location.lat, lng: location.lng };
+    setSelectedCoords(coords);
     setStep('map');
-  }, [location, open]);
+    void reverseGeocodeAndUpdate(coords.lat, coords.lng);
+  }, [location, open, reverseGeocodeAndUpdate]);
 
   // Init map when switching to map step
   useEffect(() => {
@@ -278,9 +175,15 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
 
     const center = { lat: selectedCoords.lat, lng: selectedCoords.lng };
 
+    if (mapInstance.current) {
+      mapInstance.current.setCenter(center);
+      markerInstance.current?.setPosition(center);
+      return;
+    }
+
     mapInstance.current = new google.maps.Map(mapRef.current, {
       center,
-      zoom: 16,
+      zoom: 17,
       disableDefaultUI: true,
       zoomControl: true,
       gestureHandling: 'greedy',
@@ -297,15 +200,13 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       animation: google.maps.Animation.DROP,
     });
 
-    geocoder.current = new google.maps.Geocoder();
-
     markerInstance.current.addListener('dragend', () => {
       const pos = markerInstance.current?.getPosition();
       if (!pos) return;
       const lat = pos.lat();
       const lng = pos.lng();
       setSelectedCoords({ lat, lng });
-      void reverseGeocodeCoords(lat, lng);
+      void reverseGeocodeAndUpdate(lat, lng);
     });
 
     mapInstance.current.addListener('click', (e: google.maps.MapMouseEvent) => {
@@ -314,127 +215,112 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       const lng = e.latLng.lng();
       markerInstance.current?.setPosition(e.latLng);
       setSelectedCoords({ lat, lng });
-      void reverseGeocodeCoords(lat, lng);
+      void reverseGeocodeAndUpdate(lat, lng);
     });
-  }, [step, mapsLoaded, selectedCoords?.lat, selectedCoords?.lng, reverseGeocodeCoords]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, mapsLoaded]);
 
-  // Init autocomplete service
+  // When selectedCoords change on an existing map, re-center
   useEffect(() => {
-    if (!mapsLoaded) return;
-    autocompleteService.current = new google.maps.places.AutocompleteService();
-    const div = document.createElement('div');
-    placesService.current = new google.maps.places.PlacesService(div);
-  }, [mapsLoaded]);
+    if (step !== 'map' || !mapInstance.current || !markerInstance.current || !selectedCoords) return;
+    const pos = new google.maps.LatLng(selectedCoords.lat, selectedCoords.lng);
+    mapInstance.current.setCenter(pos);
+    markerInstance.current.setPosition(pos);
+  }, [step, selectedCoords]);
 
+  /** Live search using Geocoding API (forward geocode) — works with natural language */
   const handleSearchChange = (value: string) => {
     setSearch(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (!value.trim()) {
-      searchAbortRef.current?.abort();
       setPredictions([]);
+      setIsSearching(false);
       return;
     }
 
+    setIsSearching(true);
+
     debounceRef.current = setTimeout(() => {
-      if (!autocompleteService.current) {
-        void resolveSearchFallback(value);
+      if (!geocoderRef.current) {
+        setIsSearching(false);
         return;
       }
 
-      autocompleteService.current.getPlacePredictions(
+      geocoderRef.current.geocode(
         {
-          input: value,
-          componentRestrictions: { country: 'in' },
+          address: value,
+          componentRestrictions: { country: 'IN' },
         },
-        (preds, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK && preds?.length) {
+        (results, status) => {
+          setIsSearching(false);
+          if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
             setPredictions(
-              preds.map((pred) => ({
-                id: pred.place_id,
-                title: pred.structured_formatting.main_text,
-                subtitle: pred.structured_formatting.secondary_text,
-                description: pred.description,
-                source: 'google',
-                placeId: pred.place_id,
-              }))
+              results.slice(0, 8).map((r, i) => {
+                const comps = r.address_components;
+                const mainPart = comps[0]?.long_name || r.formatted_address.split(',')[0];
+                const rest = r.formatted_address
+                  .replace(mainPart + ', ', '')
+                  .replace(mainPart, '');
+                return {
+                  id: `geo-${i}`,
+                  title: mainPart,
+                  subtitle: rest.replace(/^,\s*/, '') || undefined,
+                  description: r.formatted_address,
+                  lat: r.geometry.location.lat(),
+                  lng: r.geometry.location.lng(),
+                  components: r.address_components,
+                };
+              })
             );
-            return;
+            setMapsError(null);
+          } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
+            setPredictions([]);
+          } else {
+            console.warn('Geocoder forward status:', status);
+            setPredictions([]);
           }
-
-          if (status === google.maps.places.PlacesServiceStatus.REQUEST_DENIED) {
-            setMapsError('Google Places search is blocked for this API key/project right now. Enable billing in Google Cloud, or the app will use backup address search.');
-          }
-
-          void resolveSearchFallback(value);
         }
       );
     }, 300);
   };
 
-  const handleSelectPrediction = async (prediction: SearchPrediction) => {
-    if (prediction.source === 'osm' && prediction.lat != null && prediction.lng != null) {
-      setResolvedSelection(
-        { lat: prediction.lat, lng: prediction.lng },
-        {
-          cityName: prediction.cityName || parseAddressFromText(prediction.description).cityName,
-          areaName: prediction.areaName || parseAddressFromText(prediction.description).areaName,
-          fullAddress: prediction.description,
-        }
-      );
+  /** When user selects a geocoded result, go to map */
+  const handleSelectPrediction = (prediction: SearchPrediction) => {
+    if (prediction.lat == null || prediction.lng == null) {
+      setMapsError('Could not get coordinates for this location.');
       return;
     }
 
-    if (!placesService.current || !prediction.placeId) {
-      const fallbackResults = await searchWithOsm(prediction.description);
-      return fallbackResults;
-    }
+    const meta = prediction.components
+      ? parseGeocodingComponents(prediction.components)
+      : { cityName: 'Unknown', areaName: undefined };
 
-    placesService.current.getDetails(
-      { placeId: prediction.placeId, fields: ['geometry', 'formatted_address', 'address_components'] },
-      async (place, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          const metaFromComponents = parseGoogleAddressMeta(place.address_components);
-          const meta = {
-            cityName: metaFromComponents.cityName !== 'Unknown' ? metaFromComponents.cityName : parseAddressFromText(place.formatted_address || prediction.description).cityName,
-            areaName: metaFromComponents.areaName || parseAddressFromText(place.formatted_address || prediction.description).areaName,
-            fullAddress: place.formatted_address || prediction.description,
-          };
-          setResolvedSelection({ lat, lng }, meta);
-          return;
-        }
+    setSelectedCoords({ lat: prediction.lat, lng: prediction.lng });
+    setSelectedAddress(prediction.description);
+    setSelectedLocationMeta({ cityName: meta.cityName, areaName: meta.areaName });
+    setIsGeocodingAddress(false);
+    setStep('map');
 
-        setMapsError('Google place details failed, so backup address search is being used.');
-        await searchWithOsm(prediction.description);
-      }
-    );
+    mapInstance.current = null;
+    markerInstance.current = null;
   };
 
   const handleUseCurrentLocation = () => {
-    if (!navigator.geolocation && !window.flutter_inappwebview) {
-      return;
-    }
+    if (!navigator.geolocation && !window.flutter_inappwebview) return;
 
     requestGPSLocation();
 
-    if (window.flutter_inappwebview) {
-      return;
-    }
+    if (window.flutter_inappwebview) return;
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         setSelectedCoords({ lat: latitude, lng: longitude });
-        const resolved = await reverseGeocodeCoords(latitude, longitude);
-
-        if (resolved) {
-          setSelectedAddress(resolved.fullAddress);
-          setSelectedLocationMeta({ cityName: resolved.cityName, areaName: resolved.areaName });
-        }
-
         setStep('map');
+        mapInstance.current = null;
+        markerInstance.current = null;
+        void reverseGeocodeAndUpdate(latitude, longitude);
       },
       () => { /* error handled by context */ },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -444,11 +330,9 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const handleConfirm = () => {
     if (!selectedCoords) return;
 
-    const fallbackMeta = parseAddressFromText(selectedAddress);
-
     setLocation({
-      cityName: selectedLocationMeta?.cityName || fallbackMeta.cityName,
-      areaName: selectedLocationMeta?.areaName || fallbackMeta.areaName,
+      cityName: selectedLocationMeta?.cityName || 'Unknown',
+      areaName: selectedLocationMeta?.areaName,
       lat: selectedCoords.lat,
       lng: selectedCoords.lng,
       source: 'manual',
@@ -459,12 +343,17 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
 
   return (
     <Drawer open={open} onOpenChange={(o) => !o && onClose()} dismissible={false}>
-      <DrawerContent className="max-h-[92vh] min-h-[60vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
+      <DrawerContent
+        className="max-h-[92vh] min-h-[60vh] flex flex-col"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DrawerTitle className="sr-only">Location picker</DrawerTitle>
         <DrawerDescription className="sr-only">
           Search for an address, landmark, or establishment, then confirm the exact pin on the map.
         </DrawerDescription>
 
+        {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <h2 className="font-heading font-bold text-lg text-foreground">
             {step === 'search' ? 'Select Location' : 'Confirm Location'}
@@ -472,7 +361,11 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           <div className="flex items-center gap-2">
             {step === 'map' && (
               <button
-                onClick={() => setStep('search')}
+                onClick={() => {
+                  setStep('search');
+                  mapInstance.current = null;
+                  markerInstance.current = null;
+                }}
                 className="w-9 h-9 rounded-full flex items-center justify-center bg-secondary active:scale-95 transition-transform"
                 aria-label="Back to search"
               >
@@ -495,8 +388,10 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           </div>
         )}
 
+        {/* SEARCH STEP */}
         {step === 'search' && (
           <div className="flex-1 overflow-y-auto px-5 pb-6">
+            {/* Search input */}
             <div className="flex items-center gap-2.5 bg-secondary border border-border rounded-2xl px-4 py-3 mb-4">
               <Search size={16} className="text-muted-foreground flex-shrink-0" />
               <input
@@ -508,13 +403,15 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
                 className="flex-1 bg-transparent text-[14px] font-body text-foreground placeholder:text-muted-foreground outline-none"
                 autoFocus
               />
-              {search && (
-                <button onClick={() => { setSearch(''); setPredictions([]); searchAbortRef.current?.abort(); }}>
+              {isSearching && <Loader2 size={14} className="text-muted-foreground animate-spin" />}
+              {search && !isSearching && (
+                <button onClick={() => { setSearch(''); setPredictions([]); }}>
                   <X size={14} className="text-muted-foreground" />
                 </button>
               )}
             </div>
 
+            {/* Use Current Location */}
             <button
               onClick={handleUseCurrentLocation}
               disabled={isLocating}
@@ -539,12 +436,13 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
               <p className="text-[12px] font-body text-destructive mb-3 px-1">{locationError}</p>
             )}
 
+            {/* Live search results */}
             {predictions.length > 0 && (
               <div className="space-y-1">
                 {predictions.map((pred) => (
                   <button
                     key={pred.id}
-                    onClick={() => void handleSelectPrediction(pred)}
+                    onClick={() => handleSelectPrediction(pred)}
                     className="w-full flex items-start gap-3 p-3.5 rounded-2xl bg-card border border-border active:scale-[0.98] transition-transform text-left"
                   >
                     <MapPin size={16} className="text-muted-foreground flex-shrink-0 mt-0.5" />
@@ -561,7 +459,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
               </div>
             )}
 
-            {search && predictions.length === 0 && (
+            {search && !isSearching && predictions.length === 0 && (
               <div className="text-center py-8">
                 <MapPin size={32} className="text-muted-foreground/40 mx-auto mb-2" />
                 <p className="text-[13px] font-body text-muted-foreground">No results found</p>
@@ -579,6 +477,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
           </div>
         )}
 
+        {/* MAP STEP */}
         {step === 'map' && (
           <div className="flex-1 flex flex-col px-5 pb-5">
             <div className="relative flex-1 min-h-[280px] rounded-2xl overflow-hidden border border-border mb-4">
@@ -592,21 +491,31 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
               </div>
             </div>
 
+            {/* Selected address with loading state */}
             <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-secondary border border-border mb-4">
               <MapPin size={18} className="text-primary flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="font-heading font-medium text-[14px] text-foreground">
                   Selected Location
                 </p>
-                <p className="text-[12px] font-body text-muted-foreground mt-0.5 leading-relaxed">
-                  {selectedAddress || 'Loading address...'}
-                </p>
+                {isGeocodingAddress ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Loader2 size={12} className="text-muted-foreground animate-spin" />
+                    <p className="text-[12px] font-body text-muted-foreground">
+                      Fetching address...
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[12px] font-body text-muted-foreground mt-0.5 leading-relaxed">
+                    {selectedAddress || 'Tap on the map to select a location'}
+                  </p>
+                )}
               </div>
             </div>
 
             <button
               onClick={handleConfirm}
-              disabled={!selectedCoords}
+              disabled={!selectedCoords || isGeocodingAddress}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-primary-foreground font-heading font-semibold text-[15px] active:scale-[0.98] transition-transform disabled:opacity-50 min-h-[52px] shadow-md"
             >
               <Check size={18} />
