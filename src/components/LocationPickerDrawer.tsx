@@ -3,7 +3,7 @@ import { MapPin, Search, Loader2, Navigation, X, Check, ArrowLeft } from 'lucide
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/components/ui/drawer';
 import { useLocation_ } from '@/contexts/LocationContext';
-import { loadGoogleMapsScript, GOOGLE_MAPS_API_KEY } from '@/config/googleMaps';
+import { loadGoogleMapsScript } from '@/config/googleMaps';
 
 interface LocationPickerDrawerProps {
   open: boolean;
@@ -17,7 +17,9 @@ type SearchPrediction = {
   title: string;
   subtitle?: string;
   description: string;
-  placeId?: string;
+  lat?: number;
+  lng?: number;
+  components?: google.maps.GeocoderAddressComponent[];
 };
 
 type LocationMeta = {
@@ -49,9 +51,7 @@ const parseGeocodingComponents = (
 };
 
 /**
- * Reverse-geocode using Maps JavaScript API Geocoder.
- * This uses the JS SDK (google.maps.Geocoder) — NOT the REST endpoint.
- * Requires Maps JavaScript API + Geocoding API enabled in Google Cloud.
+ * Reverse-geocode using Maps JavaScript API Geocoder (JS SDK).
  */
 const reverseGeocodeJS = async (lat: number, lng: number): Promise<LocationMeta> => {
   await loadGoogleMapsScript();
@@ -60,7 +60,6 @@ const reverseGeocodeJS = async (lat: number, lng: number): Promise<LocationMeta>
   return new Promise((resolve) => {
     geocoder.geocode({ location: { lat, lng } }, (results, status) => {
       if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
-        // Prefer street-level result for pin-point accuracy
         const preferred =
           results.find((r) =>
             r.types.includes('street_address') ||
@@ -133,10 +132,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       .then(() => {
         setMapsLoaded(true);
         setMapsError(null);
-        // Create reusable service instances
-        autocompleteServiceRef.current = new google.maps.places.AutocompleteService();
-        const div = document.createElement('div');
-        placesServiceRef.current = new google.maps.places.PlacesService(div);
         geocoderRef.current = new google.maps.Geocoder();
       })
       .catch(() => setMapsError('Failed to load Google Maps. Please check your API key.'));
@@ -171,7 +166,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     const coords = { lat: location.lat, lng: location.lng };
     setSelectedCoords(coords);
     setStep('map');
-    // Always reverse-geocode for full address accuracy
     void reverseGeocodeAndUpdate(coords.lat, coords.lng);
   }, [location, open, reverseGeocodeAndUpdate]);
 
@@ -182,7 +176,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     const center = { lat: selectedCoords.lat, lng: selectedCoords.lng };
 
     if (mapInstance.current) {
-      // Map already exists, just re-center
       mapInstance.current.setCenter(center);
       markerInstance.current?.setPosition(center);
       return;
@@ -224,7 +217,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       setSelectedCoords({ lat, lng });
       void reverseGeocodeAndUpdate(lat, lng);
     });
-    // Only run when transitioning to map step with new coords
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, mapsLoaded]);
 
@@ -236,7 +228,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     markerInstance.current.setPosition(pos);
   }, [step, selectedCoords]);
 
-  /** Live search using AutocompleteService */
+  /** Live search using Geocoding API (forward geocode) — works with natural language */
   const handleSearchChange = (value: string) => {
     setSearch(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -250,37 +242,42 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     setIsSearching(true);
 
     debounceRef.current = setTimeout(() => {
-      if (!autocompleteServiceRef.current) {
+      if (!geocoderRef.current) {
         setIsSearching(false);
         return;
       }
 
-      autocompleteServiceRef.current.getPlacePredictions(
+      geocoderRef.current.geocode(
         {
-          input: value,
-          componentRestrictions: { country: 'in' },
+          address: value,
+          componentRestrictions: { country: 'IN' },
         },
         (results, status) => {
           setIsSearching(false);
-          if (
-            status === google.maps.places.PlacesServiceStatus.OK &&
-            results &&
-            results.length > 0
-          ) {
+          if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
             setPredictions(
-              results.map((p) => ({
-                id: p.place_id,
-                title: p.structured_formatting.main_text,
-                subtitle: p.structured_formatting.secondary_text,
-                description: p.description,
-                placeId: p.place_id,
-              }))
+              results.slice(0, 8).map((r, i) => {
+                const comps = r.address_components;
+                const mainPart = comps[0]?.long_name || r.formatted_address.split(',')[0];
+                const rest = r.formatted_address
+                  .replace(mainPart + ', ', '')
+                  .replace(mainPart, '');
+                return {
+                  id: `geo-${i}`,
+                  title: mainPart,
+                  subtitle: rest.replace(/^,\s*/, '') || undefined,
+                  description: r.formatted_address,
+                  lat: r.geometry.location.lat(),
+                  lng: r.geometry.location.lng(),
+                  components: r.address_components,
+                };
+              })
             );
             setMapsError(null);
-          } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+          } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
             setPredictions([]);
           } else {
-            console.warn('AutocompleteService status:', status);
+            console.warn('Geocoder forward status:', status);
             setPredictions([]);
           }
         }
@@ -288,46 +285,25 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     }, 300);
   };
 
-  /** When user selects a prediction, fetch details and go to map */
+  /** When user selects a geocoded result, go to map */
   const handleSelectPrediction = (prediction: SearchPrediction) => {
-    if (!prediction.placeId || !placesServiceRef.current) {
+    if (prediction.lat == null || prediction.lng == null) {
       setMapsError('Could not get coordinates for this location.');
       return;
     }
 
-    setIsSearching(true);
+    const meta = prediction.components
+      ? parseGeocodingComponents(prediction.components)
+      : { cityName: 'Unknown', areaName: undefined };
 
-    placesServiceRef.current.getDetails(
-      {
-        placeId: prediction.placeId,
-        fields: ['geometry', 'formatted_address', 'address_components'],
-      },
-      (place, status) => {
-        setIsSearching(false);
+    setSelectedCoords({ lat: prediction.lat, lng: prediction.lng });
+    setSelectedAddress(prediction.description);
+    setSelectedLocationMeta({ cityName: meta.cityName, areaName: meta.areaName });
+    setIsGeocodingAddress(false);
+    setStep('map');
 
-        if (
-          status !== google.maps.places.PlacesServiceStatus.OK ||
-          !place?.geometry?.location
-        ) {
-          setMapsError('Could not get details for this location.');
-          return;
-        }
-
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
-        const meta = parseGeocodingComponents(place.address_components || []);
-
-        setSelectedCoords({ lat, lng });
-        setSelectedAddress(place.formatted_address || '');
-        setSelectedLocationMeta({ cityName: meta.cityName, areaName: meta.areaName });
-        setIsGeocodingAddress(false);
-        setStep('map');
-
-        // Reset map instance so it re-creates at new coords
-        mapInstance.current = null;
-        markerInstance.current = null;
-      }
-    );
+    mapInstance.current = null;
+    markerInstance.current = null;
   };
 
   const handleUseCurrentLocation = () => {
@@ -342,7 +318,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
         const { latitude, longitude } = pos.coords;
         setSelectedCoords({ lat: latitude, lng: longitude });
         setStep('map');
-        // Reset map so it rebuilds at new coords
         mapInstance.current = null;
         markerInstance.current = null;
         void reverseGeocodeAndUpdate(latitude, longitude);
