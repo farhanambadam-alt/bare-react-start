@@ -3,7 +3,7 @@ import { MapPin, Search, Loader2, Navigation, X, Check, ArrowLeft } from 'lucide
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/components/ui/drawer';
 import { useLocation_ } from '@/contexts/LocationContext';
-import { loadGoogleMapsScript } from '@/config/googleMaps';
+import { loadGoogleMapsScript, GOOGLE_MAPS_API_KEY } from '@/config/googleMaps';
 
 interface LocationPickerDrawerProps {
   open: boolean;
@@ -17,7 +17,6 @@ type SearchPrediction = {
   title: string;
   subtitle?: string;
   description: string;
-  source: 'google' | 'osm';
   placeId?: string;
   lat?: number;
   lng?: number;
@@ -31,65 +30,119 @@ type LocationMeta = {
   fullAddress: string;
 };
 
-const parseAddressFromText = (address: string): Pick<LocationMeta, 'cityName' | 'areaName'> => {
-  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
-
-  if (parts.length >= 4) {
-    return {
-      areaName: parts[parts.length - 4],
-      cityName: parts[parts.length - 3] || parts[0] || 'Unknown',
-    };
-  }
-
-  if (parts.length === 3) {
-    return {
-      areaName: parts[0],
-      cityName: parts[1] || 'Unknown',
-    };
-  }
-
-  return {
-    cityName: parts[0] || 'Unknown',
-  };
-};
-
-const parseGoogleAddressMeta = (
-  components?: google.maps.GeocoderAddressComponent[]
+/** Extract city/area from Google Geocoding address_components */
+const parseGeocodingComponents = (
+  components: Array<{ long_name: string; short_name: string; types: string[] }>
 ): Pick<LocationMeta, 'cityName' | 'areaName'> => {
-  const findByType = (...types: string[]) =>
-    components?.find((component) => types.every((type) => component.types.includes(type)))?.long_name;
+  const find = (...types: string[]) =>
+    components.find((c) => types.some((t) => c.types.includes(t)))?.long_name;
 
   return {
     cityName:
-      findByType('locality') ||
-      findByType('administrative_area_level_2') ||
-      findByType('administrative_area_level_1') ||
+      find('locality') ||
+      find('administrative_area_level_2') ||
+      find('administrative_area_level_1') ||
       'Unknown',
     areaName:
-      findByType('sublocality_level_1') ||
-      findByType('sublocality') ||
-      findByType('neighborhood') ||
-      findByType('route') ||
+      find('sublocality_level_1') ||
+      find('sublocality') ||
+      find('neighborhood') ||
+      find('route') ||
       undefined,
   };
 };
 
-const parseOsmAddressMeta = (address: Record<string, string | undefined> = {}): Pick<LocationMeta, 'cityName' | 'areaName'> => ({
-  cityName:
-    address.city ||
-    address.town ||
-    address.village ||
-    address.municipality ||
-    address.state_district ||
-    address.state ||
-    'Unknown',
-  areaName:
-    address.suburb ||
-    address.neighbourhood ||
-    address.city_district ||
-    address.county ||
-    undefined,
-});
+/** Reverse-geocode using Google Geocoding API (REST) */
+const reverseGeocodeGoogle = async (lat: number, lng: number): Promise<LocationMeta> => {
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}&language=en`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data.status === 'OK' && data.results?.length) {
+    // Prefer specific result types for pinpoint accuracy
+    const preferred =
+      data.results.find((r: any) =>
+        r.types.includes('street_address') ||
+        r.types.includes('premise') ||
+        r.types.includes('subpremise') ||
+        r.types.includes('point_of_interest')
+      ) || data.results[0];
+
+    const meta = parseGeocodingComponents(preferred.address_components || []);
+    return {
+      ...meta,
+      fullAddress: preferred.formatted_address,
+    };
+  }
+
+  return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
+};
+
+/** Search using Places API (New) REST endpoint */
+const searchPlacesNew = async (
+  query: string,
+  signal?: AbortSignal
+): Promise<SearchPrediction[]> => {
+  const url = 'https://places.googleapis.com/v1/places:searchText';
+  const body = {
+    textQuery: query,
+    languageCode: 'en',
+    regionCode: 'IN',
+    maxResultCount: 8,
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+      'X-Goog-FieldMask':
+        'places.id,places.displayName,places.formattedAddress,places.location,places.addressComponents',
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    throw new Error(data.error.message || 'Places API error');
+  }
+
+  if (!data.places?.length) return [];
+
+  return data.places.map((place: any) => {
+    const components = place.addressComponents || [];
+    const meta = parseGeocodingComponents(
+      components.map((c: any) => ({
+        long_name: c.longText || '',
+        short_name: c.shortText || '',
+        types: c.types || [],
+      }))
+    );
+
+    const displayName = place.displayName?.text || '';
+    const formatted = place.formattedAddress || '';
+
+    // Build subtitle: remove the display name from formatted address if it starts with it
+    let subtitle = formatted;
+    if (displayName && formatted.startsWith(displayName)) {
+      subtitle = formatted.slice(displayName.length).replace(/^,\s*/, '');
+    }
+
+    return {
+      id: place.id || displayName,
+      title: displayName,
+      subtitle,
+      description: formatted,
+      placeId: place.id,
+      lat: place.location?.latitude,
+      lng: place.location?.longitude,
+      cityName: meta.cityName,
+      areaName: meta.areaName,
+    };
+  });
+};
 
 const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const { location, setLocation, requestGPSLocation, isLocating, locationError } = useLocation_();
@@ -102,13 +155,11 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const [selectedLocationMeta, setSelectedLocationMeta] = useState<Pick<LocationMeta, 'cityName' | 'areaName'> | null>(null);
   const [mapsLoaded, setMapsLoaded] = useState(false);
   const [mapsError, setMapsError] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
   const markerInstance = useRef<google.maps.Marker | null>(null);
-  const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
-  const placesService = useRef<google.maps.places.PlacesService | null>(null);
-  const geocoder = useRef<google.maps.Geocoder | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const searchAbortRef = useRef<AbortController | null>(null);
@@ -120,117 +171,21 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     setStep('map');
   }, []);
 
-  const reverseGeocodeWithOsm = useCallback(async (lat: number, lng: number): Promise<LocationMeta> => {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } }
-    );
-
-    const data = await response.json();
-    const meta = parseOsmAddressMeta(data.address || {});
-
-    return {
-      ...meta,
-      fullAddress: data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-    };
-  }, []);
-
   const reverseGeocodeCoords = useCallback(async (lat: number, lng: number) => {
     try {
-      if ((window as Window & typeof globalThis & { google?: typeof google }).google?.maps) {
-        if (!geocoder.current) {
-          geocoder.current = new google.maps.Geocoder();
-        }
-
-        const googleResult = await new Promise<LocationMeta | null>((resolve) => {
-          geocoder.current?.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === 'OK' && results && results.length > 0) {
-              const preferred =
-                results.find((result) =>
-                  result.types.includes('street_address') ||
-                  result.types.includes('premise') ||
-                  result.types.includes('subpremise') ||
-                  result.types.includes('point_of_interest')
-                ) || results[0];
-
-              resolve({
-                ...parseGoogleAddressMeta(preferred.address_components),
-                fullAddress: preferred.formatted_address,
-              });
-              return;
-            }
-
-            resolve(null);
-          });
-        });
-
-        if (googleResult) {
-          setSelectedAddress(googleResult.fullAddress);
-          setSelectedLocationMeta({ cityName: googleResult.cityName, areaName: googleResult.areaName });
-          return googleResult;
-        }
-      }
-    } catch {
-      setMapsError('Google location lookup is unavailable right now, so backup address lookup is being used.');
-    }
-
-    const fallbackResult = await reverseGeocodeWithOsm(lat, lng);
-    setSelectedAddress(fallbackResult.fullAddress);
-    setSelectedLocationMeta({ cityName: fallbackResult.cityName, areaName: fallbackResult.areaName });
-    return fallbackResult;
-  }, [reverseGeocodeWithOsm]);
-
-  const searchWithOsm = useCallback(async (query: string) => {
-    searchAbortRef.current?.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(query)}`,
-        {
-          headers: { 'Accept-Language': 'en' },
-          signal: controller.signal,
-        }
-      );
-
-      const data = await response.json();
-      const fallbackPredictions: SearchPrediction[] = Array.isArray(data)
-        ? data.map((item: any) => {
-            const meta = parseOsmAddressMeta(item.address || {});
-            const title = item.name || meta.areaName || meta.cityName || item.display_name;
-            const descriptionParts = item.display_name
-              ?.split(',')
-              .map((part: string) => part.trim())
-              .filter(Boolean) || [];
-
-            return {
-              id: `${item.place_id}`,
-              title,
-              subtitle: descriptionParts.slice(1).join(', '),
-              description: item.display_name,
-              source: 'osm',
-              lat: Number(item.lat),
-              lng: Number(item.lon),
-              cityName: meta.cityName,
-              areaName: meta.areaName,
-            };
-          })
-        : [];
-
-      setPredictions(fallbackPredictions);
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        setPredictions([]);
-      }
+      const result = await reverseGeocodeGoogle(lat, lng);
+      setSelectedAddress(result.fullAddress);
+      setSelectedLocationMeta({ cityName: result.cityName, areaName: result.areaName });
+      return result;
+    } catch (err) {
+      console.error('Reverse geocoding failed:', err);
+      setSelectedAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      setSelectedLocationMeta({ cityName: 'Unknown' });
+      return null;
     }
   }, []);
 
-  const resolveSearchFallback = useCallback(async (query: string) => {
-    await searchWithOsm(query);
-  }, [searchWithOsm]);
-
-  // Load Google Maps on open
+  // Load Google Maps JS on open (for the interactive map only)
   useEffect(() => {
     if (!open) return;
     loadGoogleMapsScript()
@@ -251,6 +206,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       setSelectedCoords(null);
       setSelectedLocationMeta(null);
       setMapsError(null);
+      setIsSearching(false);
       searchAbortRef.current?.abort();
     }
   }, [open]);
@@ -262,6 +218,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     };
   }, []);
 
+  // When location updates from GPS/flutter, show map
   useEffect(() => {
     if (!open || !location.lat || !location.lng) return;
     if (location.source !== 'gps' && location.source !== 'flutter') return;
@@ -280,7 +237,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
 
     mapInstance.current = new google.maps.Map(mapRef.current, {
       center,
-      zoom: 16,
+      zoom: 17,
       disableDefaultUI: true,
       zoomControl: true,
       gestureHandling: 'greedy',
@@ -296,8 +253,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       draggable: true,
       animation: google.maps.Animation.DROP,
     });
-
-    geocoder.current = new google.maps.Geocoder();
 
     markerInstance.current.addListener('dragend', () => {
       const pos = markerInstance.current?.getPosition();
@@ -318,14 +273,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     });
   }, [step, mapsLoaded, selectedCoords?.lat, selectedCoords?.lng, reverseGeocodeCoords]);
 
-  // Init autocomplete service
-  useEffect(() => {
-    if (!mapsLoaded) return;
-    autocompleteService.current = new google.maps.places.AutocompleteService();
-    const div = document.createElement('div');
-    placesService.current = new google.maps.places.PlacesService(div);
-  }, [mapsLoaded]);
-
   const handleSearchChange = (value: string) => {
     setSearch(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -333,83 +280,49 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
     if (!value.trim()) {
       searchAbortRef.current?.abort();
       setPredictions([]);
+      setIsSearching(false);
       return;
     }
 
-    debounceRef.current = setTimeout(() => {
-      if (!autocompleteService.current) {
-        void resolveSearchFallback(value);
-        return;
-      }
+    setIsSearching(true);
 
-      autocompleteService.current.getPlacePredictions(
-        {
-          input: value,
-          componentRestrictions: { country: 'in' },
-        },
-        (preds, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK && preds?.length) {
-            setPredictions(
-              preds.map((pred) => ({
-                id: pred.place_id,
-                title: pred.structured_formatting.main_text,
-                subtitle: pred.structured_formatting.secondary_text,
-                description: pred.description,
-                source: 'google',
-                placeId: pred.place_id,
-              }))
-            );
-            return;
-          }
+    debounceRef.current = setTimeout(async () => {
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
 
-          if (status === google.maps.places.PlacesServiceStatus.REQUEST_DENIED) {
-            setMapsError('Google Places search is blocked for this API key/project right now. Enable billing in Google Cloud, or the app will use backup address search.');
-          }
-
-          void resolveSearchFallback(value);
+      try {
+        const results = await searchPlacesNew(value, controller.signal);
+        setPredictions(results);
+        setMapsError(null);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Places search error:', err);
+          setMapsError(err.message || 'Search failed. Please try again.');
+          setPredictions([]);
         }
-      );
-    }, 300);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 350);
   };
 
   const handleSelectPrediction = async (prediction: SearchPrediction) => {
-    if (prediction.source === 'osm' && prediction.lat != null && prediction.lng != null) {
+    if (prediction.lat != null && prediction.lng != null) {
       setResolvedSelection(
         { lat: prediction.lat, lng: prediction.lng },
         {
-          cityName: prediction.cityName || parseAddressFromText(prediction.description).cityName,
-          areaName: prediction.areaName || parseAddressFromText(prediction.description).areaName,
+          cityName: prediction.cityName || 'Unknown',
+          areaName: prediction.areaName,
           fullAddress: prediction.description,
         }
       );
       return;
     }
 
-    if (!placesService.current || !prediction.placeId) {
-      const fallbackResults = await searchWithOsm(prediction.description);
-      return fallbackResults;
-    }
-
-    placesService.current.getDetails(
-      { placeId: prediction.placeId, fields: ['geometry', 'formatted_address', 'address_components'] },
-      async (place, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          const metaFromComponents = parseGoogleAddressMeta(place.address_components);
-          const meta = {
-            cityName: metaFromComponents.cityName !== 'Unknown' ? metaFromComponents.cityName : parseAddressFromText(place.formatted_address || prediction.description).cityName,
-            areaName: metaFromComponents.areaName || parseAddressFromText(place.formatted_address || prediction.description).areaName,
-            fullAddress: place.formatted_address || prediction.description,
-          };
-          setResolvedSelection({ lat, lng }, meta);
-          return;
-        }
-
-        setMapsError('Google place details failed, so backup address search is being used.');
-        await searchWithOsm(prediction.description);
-      }
-    );
+    // If no coords from search result, reverse geocode from place details
+    // (shouldn't happen with Places API New, but just in case)
+    setMapsError('Could not get coordinates for this location.');
   };
 
   const handleUseCurrentLocation = () => {
@@ -419,9 +332,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
 
     requestGPSLocation();
 
-    if (window.flutter_inappwebview) {
-      return;
-    }
+    if (window.flutter_inappwebview) return;
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -444,11 +355,9 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const handleConfirm = () => {
     if (!selectedCoords) return;
 
-    const fallbackMeta = parseAddressFromText(selectedAddress);
-
     setLocation({
-      cityName: selectedLocationMeta?.cityName || fallbackMeta.cityName,
-      areaName: selectedLocationMeta?.areaName || fallbackMeta.areaName,
+      cityName: selectedLocationMeta?.cityName || 'Unknown',
+      areaName: selectedLocationMeta?.areaName,
       lat: selectedCoords.lat,
       lng: selectedCoords.lng,
       source: 'manual',
@@ -508,7 +417,8 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
                 className="flex-1 bg-transparent text-[14px] font-body text-foreground placeholder:text-muted-foreground outline-none"
                 autoFocus
               />
-              {search && (
+              {isSearching && <Loader2 size={14} className="text-muted-foreground animate-spin" />}
+              {search && !isSearching && (
                 <button onClick={() => { setSearch(''); setPredictions([]); searchAbortRef.current?.abort(); }}>
                   <X size={14} className="text-muted-foreground" />
                 </button>
@@ -561,7 +471,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
               </div>
             )}
 
-            {search && predictions.length === 0 && (
+            {search && !isSearching && predictions.length === 0 && (
               <div className="text-center py-8">
                 <MapPin size={32} className="text-muted-foreground/40 mx-auto mb-2" />
                 <p className="text-[13px] font-body text-muted-foreground">No results found</p>
