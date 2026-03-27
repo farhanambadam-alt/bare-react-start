@@ -105,8 +105,6 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   const markerInstance = useRef<google.maps.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
-  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
 
   /** Reverse-geocode and update UI state */
