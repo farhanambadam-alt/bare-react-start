@@ -38,23 +38,21 @@ export const useLocation_ = () => useContext(LocationContext);
 
 async function reverseGeocode(lat: number, lng: number): Promise<{ city: string; area?: string; fullAddress?: string }> {
   try {
-    const { GOOGLE_MAPS_API_KEY } = await import('@/config/googleMaps');
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}&language=en`
-    );
-    const data = await res.json();
+    await loadGoogleMapsScript();
+    const geocoder = new google.maps.Geocoder();
+    const response = await geocoder.geocode({ location: { lat, lng } });
 
-    if (data.status === 'OK' && data.results?.length) {
+    if (response.results?.length) {
       const preferred =
-        data.results.find((r: any) =>
+        response.results.find((r) =>
           r.types.includes('street_address') ||
           r.types.includes('premise') ||
           r.types.includes('point_of_interest')
-        ) || data.results[0];
+        ) || response.results[0];
 
       const components = preferred.address_components || [];
       const find = (...types: string[]) =>
-        components.find((c: any) => types.some((t: string) => c.types.includes(t)))?.long_name;
+        components.find((c) => types.some((t) => c.types.includes(t)))?.long_name;
 
       return {
         city: find('locality') || find('administrative_area_level_2') || find('administrative_area_level_1') || 'Unknown',
