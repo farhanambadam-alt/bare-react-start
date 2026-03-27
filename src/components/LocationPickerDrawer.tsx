@@ -52,95 +52,95 @@ const parseGeocodingComponents = (
   };
 };
 
-/** Reverse-geocode using Google Geocoding API (REST) */
+/** Reverse-geocode using Maps JavaScript API Geocoder */
 const reverseGeocodeGoogle = async (lat: number, lng: number): Promise<LocationMeta> => {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}&language=en`;
-  const res = await fetch(url);
-  const data = await res.json();
+  try {
+    await loadGoogleMapsScript();
+    const geocoder = new google.maps.Geocoder();
+    const response = await geocoder.geocode({ location: { lat, lng } });
 
-  if (data.status === 'OK' && data.results?.length) {
-    // Prefer specific result types for pinpoint accuracy
-    const preferred =
-      data.results.find((r: any) =>
-        r.types.includes('street_address') ||
-        r.types.includes('premise') ||
-        r.types.includes('subpremise') ||
-        r.types.includes('point_of_interest')
-      ) || data.results[0];
+    if (response.results?.length) {
+      const preferred =
+        response.results.find((r) =>
+          r.types.includes('street_address') ||
+          r.types.includes('premise') ||
+          r.types.includes('subpremise') ||
+          r.types.includes('point_of_interest')
+        ) || response.results[0];
 
-    const meta = parseGeocodingComponents(preferred.address_components || []);
-    return {
-      ...meta,
-      fullAddress: preferred.formatted_address,
-    };
+      const meta = parseGeocodingComponents(
+        preferred.address_components.map((c) => ({
+          long_name: c.long_name,
+          short_name: c.short_name,
+          types: c.types,
+        }))
+      );
+      return { ...meta, fullAddress: preferred.formatted_address };
+    }
+    return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
+  } catch {
+    return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
   }
-
-  return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
 };
 
-/** Search using Places API (New) REST endpoint */
-const searchPlacesNew = async (
+/** Search using Maps JavaScript API AutocompleteService (old Places API) */
+const searchPlacesOld = async (
   query: string,
-  signal?: AbortSignal
 ): Promise<SearchPrediction[]> => {
-  const url = 'https://places.googleapis.com/v1/places:searchText';
-  const body = {
-    textQuery: query,
-    languageCode: 'en',
-    regionCode: 'IN',
-    maxResultCount: 8,
-  };
+  await loadGoogleMapsScript();
+  const service = new google.maps.places.AutocompleteService();
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-      'X-Goog-FieldMask':
-        'places.id,places.displayName,places.formattedAddress,places.location,places.addressComponents',
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  const data = await res.json();
-
-  if (data.error) {
-    throw new Error(data.error.message || 'Places API error');
-  }
-
-  if (!data.places?.length) return [];
-
-  return data.places.map((place: any) => {
-    const components = place.addressComponents || [];
-    const meta = parseGeocodingComponents(
-      components.map((c: any) => ({
-        long_name: c.longText || '',
-        short_name: c.shortText || '',
-        types: c.types || [],
-      }))
+  return new Promise((resolve) => {
+    service.getPlacePredictions(
+      { input: query, componentRestrictions: { country: 'in' } },
+      (predictions, status) => {
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+          resolve([]);
+          return;
+        }
+        resolve(
+          predictions.map((p) => ({
+            id: p.place_id,
+            title: p.structured_formatting.main_text,
+            subtitle: p.structured_formatting.secondary_text,
+            description: p.description,
+            placeId: p.place_id,
+          }))
+        );
+      }
     );
+  });
+};
 
-    const displayName = place.displayName?.text || '';
-    const formatted = place.formattedAddress || '';
+/** Get place details (lat/lng + address components) from a place_id */
+const getPlaceDetails = async (placeId: string): Promise<{ lat: number; lng: number; meta: LocationMeta } | null> => {
+  await loadGoogleMapsScript();
+  const div = document.createElement('div');
+  const placesService = new google.maps.places.PlacesService(div);
 
-    // Build subtitle: remove the display name from formatted address if it starts with it
-    let subtitle = formatted;
-    if (displayName && formatted.startsWith(displayName)) {
-      subtitle = formatted.slice(displayName.length).replace(/^,\s*/, '');
-    }
-
-    return {
-      id: place.id || displayName,
-      title: displayName,
-      subtitle,
-      description: formatted,
-      placeId: place.id,
-      lat: place.location?.latitude,
-      lng: place.location?.longitude,
-      cityName: meta.cityName,
-      areaName: meta.areaName,
-    };
+  return new Promise((resolve) => {
+    placesService.getDetails(
+      { placeId, fields: ['geometry', 'formatted_address', 'address_components'] },
+      (place, status) => {
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !place?.geometry?.location) {
+          resolve(null);
+          return;
+        }
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        const components = (place.address_components || []).map((c) => ({
+          long_name: c.long_name,
+          short_name: c.short_name,
+          types: c.types,
+        }));
+        const parsed = parseGeocodingComponents(components);
+        resolve({
+          lat,
+          lng,
+          meta: { ...parsed, fullAddress: place.formatted_address || '' },
+        });
+      }
+    );
   });
 };
 
@@ -292,7 +292,7 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
       searchAbortRef.current = controller;
 
       try {
-        const results = await searchPlacesNew(value, controller.signal);
+        const results = await searchPlacesOld(value);
         setPredictions(results);
         setMapsError(null);
       } catch (err: any) {
@@ -308,21 +308,23 @@ const LocationPickerDrawer = ({ open, onClose }: LocationPickerDrawerProps) => {
   };
 
   const handleSelectPrediction = async (prediction: SearchPrediction) => {
-    if (prediction.lat != null && prediction.lng != null) {
-      setResolvedSelection(
-        { lat: prediction.lat, lng: prediction.lng },
-        {
-          cityName: prediction.cityName || 'Unknown',
-          areaName: prediction.areaName,
-          fullAddress: prediction.description,
-        }
-      );
+    if (!prediction.placeId) {
+      setMapsError('Could not get coordinates for this location.');
       return;
     }
 
-    // If no coords from search result, reverse geocode from place details
-    // (shouldn't happen with Places API New, but just in case)
-    setMapsError('Could not get coordinates for this location.');
+    setIsSearching(true);
+    const details = await getPlaceDetails(prediction.placeId);
+    setIsSearching(false);
+
+    if (details) {
+      setResolvedSelection(
+        { lat: details.lat, lng: details.lng },
+        details.meta
+      );
+    } else {
+      setMapsError('Could not get details for this location.');
+    }
   };
 
   const handleUseCurrentLocation = () => {
