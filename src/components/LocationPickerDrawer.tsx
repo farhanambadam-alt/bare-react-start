@@ -52,30 +52,35 @@ const parseGeocodingComponents = (
   };
 };
 
-/** Reverse-geocode using Google Geocoding API (REST) */
+/** Reverse-geocode using Maps JavaScript API Geocoder */
 const reverseGeocodeGoogle = async (lat: number, lng: number): Promise<LocationMeta> => {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_MAPS_API_KEY}&language=en`;
-  const res = await fetch(url);
-  const data = await res.json();
+  try {
+    await loadGoogleMapsScript();
+    const geocoder = new google.maps.Geocoder();
+    const response = await geocoder.geocode({ location: { lat, lng } });
 
-  if (data.status === 'OK' && data.results?.length) {
-    // Prefer specific result types for pinpoint accuracy
-    const preferred =
-      data.results.find((r: any) =>
-        r.types.includes('street_address') ||
-        r.types.includes('premise') ||
-        r.types.includes('subpremise') ||
-        r.types.includes('point_of_interest')
-      ) || data.results[0];
+    if (response.results?.length) {
+      const preferred =
+        response.results.find((r) =>
+          r.types.includes('street_address') ||
+          r.types.includes('premise') ||
+          r.types.includes('subpremise') ||
+          r.types.includes('point_of_interest')
+        ) || response.results[0];
 
-    const meta = parseGeocodingComponents(preferred.address_components || []);
-    return {
-      ...meta,
-      fullAddress: preferred.formatted_address,
-    };
+      const meta = parseGeocodingComponents(
+        preferred.address_components.map((c) => ({
+          long_name: c.long_name,
+          short_name: c.short_name,
+          types: c.types,
+        }))
+      );
+      return { ...meta, fullAddress: preferred.formatted_address };
+    }
+    return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
+  } catch {
+    return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
   }
-
-  return { cityName: 'Unknown', fullAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}` };
 };
 
 /** Search using Places API (New) REST endpoint */
